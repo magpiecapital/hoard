@@ -103,3 +103,10 @@ The Hoard does not go live until all of these exist:
 | `DUST_BPS` | 50 | 0.5% snapshot-over-snapshot decrease tolerated |
 | Snapshot cadence | unchanged | ~7–10 days, existing scheduler |
 | Pool source | unchanged | existing holder-rewards fee share |
+
+## 9. Future extensions (explicitly out of v0.1 scope)
+
+- **Loyalty-weighted governance** (veCRV-inspired, see PRECEDENTS §2): Hoard multipliers weighting
+  MGP governance votes. A natural extension — conviction should arguably weight voice, not just
+  rewards — but it changes governance power distribution and therefore requires its own proposal,
+  review window, and governance approval. Not part of the v0.1 launch.

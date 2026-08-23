@@ -36,6 +36,7 @@ Because every lockup vault is attack surface, and Magpie's first law is that use
 ## Documents
 
 - **[SPEC.md](./SPEC.md)** — the full mechanics: streak definition, weighting math, rounding, edge cases
+- **[PRECEDENTS.md](./PRECEDENTS.md)** — what the best staking programs (and the worst failures) taught us; every practice adopted, adapted, or rejected with rationale
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — how it integrates with the live rewards pipeline, phased rollout plan
 - **[SECURITY.md](./SECURITY.md)** — threat model: gaming vectors and mitigations
 - **[reference/](./reference)** — standalone reference implementation of the streak engine (pure JS, no dependencies) with test vectors
