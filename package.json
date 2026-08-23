@@ -1,0 +1,7 @@
+{
+  "name": "magpie-hoard-spec",
+  "private": true,
+  "type": "module",
+  "description": "The Hoard — public design spec + reference implementation for loyalty-weighted $MAGPIE holder rewards",
+  "scripts": { "test": "node reference/test.js" }
+}
