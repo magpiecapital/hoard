@@ -15,6 +15,31 @@ export const DEFAULT_PARAMS = Object.freeze({
   DUST_BPS: 50n, // 0.5% snapshot-over-snapshot decrease tolerated (SPEC §3.3)
 });
 
+/**
+ * Parameter validation (SECURITY.md §8, Sec3 param-bounds class).
+ * Governance can tune the curve, but never into an unsafe or unfair shape:
+ *  - tiers strictly increasing, first tier day 0 (everyone has a defined tier)
+ *  - multipliers monotone non-decreasing (longer loyalty never earns LESS)
+ *  - base multiplier exactly 1.00x (10000 bps) — the curve can only reward,
+ *    never punish below pro-rata; a base below 1x would silently tax
+ *    new holders relative to the documented pro-rata floor
+ *  - dust tolerance capped at 2% — anything larger becomes a real exit valve
+ * Throws on violation; callers must validate BEFORE persisting new params.
+ */
+export function validateParams(p) {
+  if (!Array.isArray(p.TIER_DAYS) || !Array.isArray(p.TIER_BPS) || p.TIER_DAYS.length !== p.TIER_BPS.length || p.TIER_DAYS.length < 1) {
+    throw new Error("params: TIER_DAYS/TIER_BPS must be equal-length non-empty arrays");
+  }
+  if (p.TIER_DAYS[0] !== 0) throw new Error("params: first tier must start at day 0");
+  for (let i = 1; i < p.TIER_DAYS.length; i++) {
+    if (!(p.TIER_DAYS[i] > p.TIER_DAYS[i - 1])) throw new Error("params: TIER_DAYS must be strictly increasing");
+    if (!(p.TIER_BPS[i] >= p.TIER_BPS[i - 1])) throw new Error("params: TIER_BPS must be monotone non-decreasing");
+  }
+  if (p.TIER_BPS[0] !== 10000n) throw new Error("params: base multiplier must be exactly 10000 bps (1.00x)");
+  if (!(p.DUST_BPS >= 0n && p.DUST_BPS <= 200n)) throw new Error("params: DUST_BPS must be within [0, 200] (max 2%)");
+  return true;
+}
+
 const DAY_MS = 86_400_000;
 
 /** SPEC §2 — streak (days) → multiplier (bps). Step function. */
@@ -94,9 +119,19 @@ export function allocate(entries, pool) {
  * history: [{ snapMs, balances: Map<wallet, BigInt> }] in chronological order.
  */
 export function replayHistory(history, params = DEFAULT_PARAMS) {
+  validateParams(params);
   const states = new Map();
   const seen = new Set();
+  let prevMs = -Infinity;
   for (const snap of history) {
+    // Snapshot-integrity guards (Sec3 L-01 class — time-source manipulation):
+    // a duplicated snapshot must be a no-op, and out-of-order history must be
+    // rejected loudly rather than silently rewriting streak anchors. Streak
+    // TIME only ever derives from the snapshot sequence itself — there is no
+    // wall-clock input an attacker (or a bug) can replay to double-advance.
+    if (snap.snapMs === prevMs) continue; // exact duplicate → idempotent skip
+    if (snap.snapMs < prevMs) throw new Error(`history not chronological at ${snap.snapMs}`);
+    prevMs = snap.snapMs;
     for (const w of snap.balances.keys()) seen.add(w);
     for (const w of seen) {
       const bal = snap.balances.get(w) ?? 0n;

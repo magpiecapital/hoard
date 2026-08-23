@@ -44,6 +44,25 @@ The streak table is derived state, rebuildable from archived snapshots (SPEC §6
 - No changes to pool funding, payout rails, rent-exempt handling, or eligibility.
 - No oracle dependency: streaks derive from token balances alone.
 
+## 8. Audit-standard hardening (Sec3-derived)
+
+Magpie's lending programs went through a full independent audit by Sec3, and every recommendation was implemented. The Hoard is a different kind of system — off-chain, no custody — but **it inherits the same standard**: we walked the audit's finding *classes* and mapped each applicable one onto this design, with an executable adversarial test vector for every mapping (`reference/test.js`, "adv:" vectors).
+
+| Audit finding class (from the lending audit) | The Hoard analogue | Control | Test vector |
+|---|---|---|---|
+| Trusting *claimed* amounts over *measured* state (H-class) | streaks/weights derived from inferred rather than actual balances | streaks derive **only** from measured snapshot balances (the same pipeline that already pays 9 cycles); no self-reported input exists anywhere | design-level (no input surface) |
+| Time-source manipulation — clustered/replayed samples satisfying a time gate (L-class) | replayed or reordered snapshots double-advancing streaks | replay is **idempotent** (duplicate snapshot = no-op) and **order-enforced** (non-chronological history throws); streak time derives solely from the snapshot sequence — no wall-clock input to spoof | `adv: duplicate snapshot`, `adv: non-chronological` |
+| Arithmetic overflow (u64-class) | whale balances × bps-scaled multipliers × pool overflowing fixed-width math | arbitrary-precision integers end-to-end in the spec; production storage requirement: unbounded numeric columns, never 64-bit | `adv: whale-scale` (~10¹⁸ balance) |
+| Rounding/dust exploitation — fees rounding to zero, dust leaking value (L-class) | allocation rounding creating or destroying lamports, or systematically shorting small holders | largest-remainder allocation with the machine-checked conservation invariant Σ alloc = pool, **exactly**, always | `adv: 200-trial fuzz`, invariant 1 |
+| Poisoned degenerate state — empty pool with live shares stealing deposits (L-class) | empty eligible sets or all-zero balances producing ghost claims | degenerate cases allocate exactly zero; nothing is claimable from an empty state | `adv: empty eligible set`, `adv: all-zero` |
+| Unbound accounts — cross-pool substitution (L-class) | streak state detached from its canonical history | streak table is *derived* state, rebuildable only from the canonical snapshot archive; any dispute → deterministic replay from source | `§6 determinism` |
+| Unsafe parameter changes (Q/I-class) | governance tuning the curve into an unfair or exploitable shape | `validateParams` hard-rejects: base below 1.00× (would silently tax new holders), non-monotone tiers (longer loyalty earning less), missing day-0 tier, dust tolerance above 2% (real exit valve). Parameter changes take effect only at the **next** snapshot — never retroactively rewriting an anchor | `adv: every unsafe param set` |
+| First-exit / timing advantage (L-class) | mid-cycle multiplier games | step function evaluated **at the snapshot**: there is no intra-cycle state to game, and snapshot times are unannounced (§3) | design-level |
+
+**Fairness is part of the threat model.** A curve that quietly taxes newcomers, a rounding scheme that shorts small wallets, or a governance change that retroactively rewrites streaks are treated as exploits here, not policy choices — which is why they are *structurally rejected* by validation and invariants rather than left to good intentions.
+
+Before any implementation phase begins, this mapping gets re-walked against the then-current audit findings list — the standard is standing, not one-time.
+
 ## Reporting
 
 Think we missed a vector? Open an issue in this repo. The design phase exists precisely so this analysis gets adversarial review before anything ships.

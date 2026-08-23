@@ -2,7 +2,7 @@
  * The Hoard — executable test vectors for SPEC v0.1.
  * Run: node reference/test.js   (exits non-zero on any failure)
  */
-import { DEFAULT_PARAMS, multiplierBps, advanceStreak, streakDays, allocate, replayHistory } from "./hoard.js";
+import { DEFAULT_PARAMS, multiplierBps, advanceStreak, streakDays, allocate, replayHistory, validateParams } from "./hoard.js";
 
 let failures = 0;
 function check(name, cond) {
@@ -83,6 +83,72 @@ check("§6 vanished wallet has no streak", !states.has("Z"));
 const replay2 = replayHistory(history);
 const ser = (m) => JSON.stringify([...m.entries()], (_, v) => (typeof v === "bigint" ? v.toString() : v));
 check("§6 determinism: independent replays agree", ser(states) === ser(replay2));
+
+// ── Adversarial vectors (Sec3-derived hardening — see SECURITY.md §8) ────────
+
+// [Sec3 L-01 class: time-source manipulation] duplicated snapshot is a no-op
+const dupHistory = [
+  { snapMs: T0, balances: new Map([["X", 100n]]) },
+  { snapMs: T0, balances: new Map([["X", 100n]]) }, // exact replay
+  { snapMs: T0 + 10 * DAY, balances: new Map([["X", 100n]]) },
+];
+check("adv: duplicate snapshot cannot double-advance streaks",
+  replayHistory(dupHistory).get("X").anchorMs === T0);
+
+// [Sec3 L-01 class] out-of-order history rejected, never silently re-anchored
+let threw = false;
+try { replayHistory([{ snapMs: T0 + DAY, balances: new Map() }, { snapMs: T0, balances: new Map() }]); }
+catch { threw = true; }
+check("adv: non-chronological history throws", threw);
+
+// [overflow class — protocol u64-overflow lesson] whale-scale math stays exact
+const whale = [
+  { wallet: "W", balance: 999_999_999_999_999_999n, multBps: 20000n }, // ~1e18
+  { wallet: "m", balance: 1n, multBps: 10000n },
+];
+const bigPool = 500_000_000_000_000n; // 500k SOL in lamports
+const whaleAlloc = allocate(whale, bigPool);
+check("adv: whale-scale allocation conserves pool exactly",
+  whaleAlloc.get("W") + whaleAlloc.get("m") === bigPool);
+check("adv: minnow is never rounded into oblivion beyond floor+remainder rules",
+  whaleAlloc.get("m") >= 0n && whaleAlloc.get("m") <= 1n);
+
+// [param-bounds class] governance cannot set an unsafe/unfair curve
+const rejects = [
+  { ...DEFAULT_PARAMS, TIER_BPS: [9000n, 12500n, 15000n, 20000n] },          // base below 1x taxes new holders
+  { ...DEFAULT_PARAMS, TIER_BPS: [10000n, 15000n, 12500n, 20000n] },         // non-monotone: longer earns less
+  { ...DEFAULT_PARAMS, TIER_DAYS: [0, 30, 14, 90] },                          // out-of-order tiers
+  { ...DEFAULT_PARAMS, TIER_DAYS: [7, 14, 30, 90] },                          // no day-0 tier
+  { ...DEFAULT_PARAMS, DUST_BPS: 500n },                                      // 5% dust = real exit valve
+];
+check("adv: every unsafe param set is rejected", rejects.every((p) => {
+  try { validateParams(p); return false; } catch { return true; }
+}));
+check("adv: launch params validate clean", validateParams(DEFAULT_PARAMS) === true);
+
+// [degenerate-state class — Sec3 L-07 lesson: poisoned empty state]
+check("adv: empty eligible set with non-zero pool allocates nothing (no ghost claims)",
+  [...allocate([], 1_000_000n).values()].length === 0);
+check("adv: all-zero balances allocate zeros",
+  [...allocate([{ wallet: "a", balance: 0n, multBps: 20000n }], 1_000n).values()].every((v) => v === 0n));
+
+// [rounding-conservation fuzz — Sec3 dust/rounding class] 200 randomized trials
+let fuzzOk = true;
+let seed = 0x9e3779b9;
+const rand = () => (seed = (seed * 1103515245 + 12345) >>> 0);
+for (let t = 0; t < 200 && fuzzOk; t++) {
+  const n = 1 + (rand() % 40);
+  const entries2 = Array.from({ length: n }, (_, i) => ({
+    wallet: `w${i}`,
+    balance: BigInt(1 + (rand() % 1_000_000_000)),
+    multBps: [10000n, 12500n, 15000n, 20000n][rand() % 4],
+  }));
+  const pool2 = BigInt(1 + (rand() % 2_000_000_000));
+  const a2 = allocate(entries2, pool2);
+  const s2 = [...a2.values()].reduce((x, y) => x + y, 0n);
+  if (s2 !== pool2 || [...a2.values()].some((v) => v < 0n || v > pool2)) fuzzOk = false;
+}
+check("adv: 200-trial fuzz — pool conserved exactly, all allocations bounded", fuzzOk);
 
 console.log(failures === 0 ? "\nALL VECTORS PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
