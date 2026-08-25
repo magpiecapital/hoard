@@ -40,6 +40,8 @@ Because every lockup vault is attack surface, and Magpie's first law is that use
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — how it integrates with the live rewards pipeline, phased rollout plan
 - **[SECURITY.md](./SECURITY.md)** — threat model: gaming vectors and mitigations
 - **[reference/](./reference)** — standalone reference implementation of the streak engine (pure JS, no dependencies) with test vectors
+- **[engine/](./engine)** — the devnet build: production-shaped engine + pluggable storage + a deterministic end-to-end harness (`node engine/devnet.js`)
+- **[SIMULATIONS.md](./SIMULATIONS.md)** — real-history validation aggregates + reproducible devnet results
 
 ## Honest disclosures
 
